@@ -1,0 +1,20 @@
+# Model binaries (large; downloaded via setup_models.py)
+models/*.task
+models/*.joblib
+
+# Recorded landmark data (grows fast once the team starts recording)
+data/
+
+# Virtual environment
+venv/
+
+# Cloned dataset repo (pulled separately, large)
+INCLUDE/
+
+# Python
+__pycache__/
+*.pyc
+.env
+
+# OMC orchestration state
+.omc/

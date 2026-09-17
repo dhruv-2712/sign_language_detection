@@ -22,10 +22,15 @@ Everything except the classifier is a pretrained / inference-only component.
 | `collect_data.py` — webcam clip recorder | **Real** tooling |
 | `train_baseline.py` — average-pool + MLPClassifier | **Placeholder** — disposable sanity check, NOT the final model |
 | `demo.py` — glosses -> Claude -> pyttsx3 TTS | **Real** wiring, hardcoded input for now |
-| Transformer classifier | **Not built yet** — the real deliverable, next sessions |
+| `model.py` / `train_transformer.py` — Transformer classifier | **Real** — the actual deliverable; trains on landmark sequences |
+| `dataset.py` — variable-length clip loader + padding masks | **Real** |
+| `video_to_landmarks.py` — turn ISL videos into `.npy` clips | **Real** — feeds INCLUDE data through our extractor |
+| `tests/test_pipeline.py` — synthetic end-to-end smoke test | **Real** — verifies training with no data/webcam |
 
 The Phase 4 MLP classifier only proves the data → features → prediction path
-works. Do not tune its accuracy; it is thrown away.
+works. Do not tune its accuracy; it is thrown away. The Transformer in
+`model.py` is the real model — a self-attention encoder over the frame sequence
+with a learnable `[CLS]` token and padding masks.
 
 ## Setup
 
@@ -46,10 +51,19 @@ $env:ANTHROPIC_API_KEY = "..."   # needed for demo.py only
 ## Usage
 
 ```powershell
-python src/landmarks.py          # webcam verification loop — watch nonzero count rise with a hand in frame
-python src/collect_data.py       # SPACE=record toggle  N=next label  Q=quit
-python src/train_baseline.py     # trains + prints test accuracy, saves models/baseline_classifier.joblib
-python src/demo.py               # glosses -> Claude sentence -> spoken output
+python src/landmarks.py           # webcam verification loop — watch nonzero count rise with a hand in frame
+python src/collect_data.py        # SPACE=record toggle  N=next label  Q=quit
+python src/train_baseline.py      # disposable MLP sanity check -> models/baseline_classifier.joblib
+python src/train_transformer.py --data_dir data/raw_landmarks --epochs 40   # the real model -> models/sign_transformer.pt
+python src/demo.py                # glosses -> Claude sentence -> spoken output
+python tests/test_pipeline.py     # synthetic smoke test (no webcam/data needed)
+```
+
+Turn real ISL videos into training clips (same `.npy` format as the webcam recorder):
+
+```powershell
+python src/video_to_landmarks.py --src <Greetings-dir> --recursive \
+    --map "48. Hello=hello,55. Thank you=thankyou,56. Pleased=please" --limit 15 --stride 2
 ```
 
 Vocabulary: `hello, thankyou, yes, no, please, water, help, name`.

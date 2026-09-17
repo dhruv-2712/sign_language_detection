@@ -1,6 +1,7 @@
-# Model binaries (large; downloaded via setup_models.py)
+# Model binaries (large; downloaded via setup_models.py or trained locally)
 models/*.task
 models/*.joblib
+models/*.pt
 
 # Recorded landmark data (grows fast once the team starts recording)
 data/
@@ -18,3 +19,6 @@ __pycache__/
 
 # OMC orchestration state
 .omc/
+
+# Binary handoff deliverables (regenerable; keep repo lean)
+presentation/

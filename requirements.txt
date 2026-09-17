@@ -1,0 +1,14 @@
+# Core landmark + demo pipeline
+mediapipe
+opencv-python
+numpy
+scikit-learn
+joblib
+pyttsx3
+anthropic
+
+# Real Transformer model (Phase 3)
+torch
+
+# Testing
+pytest

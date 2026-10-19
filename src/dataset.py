@@ -12,6 +12,8 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
+from preprocess import normalize, augment
+
 FEATURE_DIM = 225
 
 
@@ -34,10 +36,11 @@ def discover(data_dir):
 
 
 class LandmarkClips(Dataset):
-    def __init__(self, samples, label_to_idx, max_len=160):
+    def __init__(self, samples, label_to_idx, max_len=160, train=False):
         self.samples = samples
         self.label_to_idx = label_to_idx
         self.max_len = max_len
+        self.train = train
 
     def __len__(self):
         return len(self.samples)
@@ -47,6 +50,9 @@ class LandmarkClips(Dataset):
         seq = np.load(path).astype(np.float32)               # (T, 225)
         if seq.ndim != 2 or seq.shape[1] != FEATURE_DIM:
             raise ValueError(f"{path}: expected (T,{FEATURE_DIM}), got {seq.shape}")
+        seq = normalize(seq)
+        if self.train:
+            seq = augment(seq)
         if len(seq) > self.max_len:                          # uniform temporal subsample
             idx = np.linspace(0, len(seq) - 1, self.max_len).astype(int)
             seq = seq[idx]

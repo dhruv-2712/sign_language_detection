@@ -25,6 +25,10 @@ Everything except the classifier is a pretrained / inference-only component.
 | `model.py` / `train_transformer.py` â€” Transformer classifier | **Real** â€” the actual deliverable; trains on landmark sequences |
 | `dataset.py` â€” variable-length clip loader + padding masks | **Real** |
 | `video_to_landmarks.py` â€” turn ISL videos into `.npy` clips | **Real** â€” feeds INCLUDE data through our extractor |
+| `preprocess.py` — shoulder-centred/scaled normalisation + augmentation | **Real** — used in training and live inference |
+| `segmenter.py` — splits a continuous stream into per-sign clips (hand presence) | **Real** |
+| `evaluate.py` — per-class accuracy + confusion matrix | **Real** |
+| `live_demo.py` — webcam -> segment -> Transformer -> Claude -> TTS | **Real** — the end-to-end demo |
 | `tests/test_pipeline.py` â€” synthetic end-to-end smoke test | **Real** â€” verifies training with no data/webcam |
 
 The Phase 4 MLP classifier only proves the data â†’ features â†’ prediction path
@@ -55,6 +59,8 @@ python src/landmarks.py           # webcam verification loop â€” watch nonzero c
 python src/collect_data.py        # SPACE=record toggle  N=next label  Q=quit
 python src/train_baseline.py      # disposable MLP sanity check -> models/baseline_classifier.joblib
 python src/train_transformer.py --data_dir data/raw_landmarks --epochs 40   # the real model -> models/sign_transformer.pt
+python src/evaluate.py            # per-class accuracy + confusion matrix on the val split
+python src/live_demo.py           # LIVE: sign at the webcam; SPACE = speak sentence, C = clear, Q = quit
 python src/demo.py                # glosses -> Claude sentence -> spoken output
 python tests/test_pipeline.py     # synthetic smoke test (no webcam/data needed)
 ```
@@ -85,3 +91,18 @@ mode), combined by us into one feature vector. There is no unified HolisticLandm
 ## Not committed to git
 
 `models/*.task`, `models/*.joblib`, `data/`, `venv/`, `INCLUDE/` â€” see `.gitignore`.
+
+## Current results
+
+SignTransformer on 75 INCLUDE ISL clips (5 classes), with normalisation +
+augmentation + label smoothing: **93% val accuracy on 15 held-out clips**
+(was 60% without; chance 20%). The validation set is tiny and all clips come from
+INCLUDE signers, so this is a pilot figure, not a generalisation claim.
+Retrain after changing preprocessing: `python src/train_transformer.py --epochs 80`.
+
+## Still needs people/data (cannot be automated)
+
+- Live webcam use has not been exercised on a real camera in this repo yet.
+- Vocabulary is the 5 INCLUDE greetings. Add more by recording (`collect_data.py`) or
+  converting more INCLUDE categories (`video_to_landmarks.py`), then retrain.
+- Evaluate on signers not in the training set before quoting accuracy.

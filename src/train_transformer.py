@@ -53,6 +53,7 @@ def main():
     ap.add_argument("--d_model", type=int, default=128)
     ap.add_argument("--num_layers", type=int, default=4)
     ap.add_argument("--val_frac", type=float, default=0.2)
+    ap.add_argument("--dropout", type=float, default=0.2)
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--out", default=os.path.join(REPO_ROOT, "models", "sign_transformer.pt"))
     args = ap.parse_args()
@@ -74,15 +75,16 @@ def main():
     tr, va = train_test_split(samples, test_size=args.val_frac, random_state=args.seed,
                               stratify=stratify)
 
-    tr_ds = LandmarkClips(tr, label_to_idx, args.max_len)
+    tr_ds = LandmarkClips(tr, label_to_idx, args.max_len, train=True)
     va_ds = LandmarkClips(va, label_to_idx, args.max_len)
     tr_ld = DataLoader(tr_ds, batch_size=args.batch_size, shuffle=True, collate_fn=collate)
     va_ld = DataLoader(va_ds, batch_size=args.batch_size, shuffle=False, collate_fn=collate)
 
     model = SignTransformer(num_classes=n_classes, d_model=args.d_model,
-                            num_layers=args.num_layers, max_len=args.max_len).to(device)
-    criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
+                            num_layers=args.num_layers, dropout=args.dropout,
+                            max_len=args.max_len).to(device)
+    criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-2)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
 
     best_acc = 0.0
@@ -98,7 +100,7 @@ def main():
             torch.save({"state_dict": model.state_dict(),
                         "label_to_idx": label_to_idx,
                         "config": {"d_model": args.d_model, "num_layers": args.num_layers,
-                                   "max_len": args.max_len, "num_classes": n_classes}},
+                                   "max_len": args.max_len, "dropout": args.dropout, "num_classes": n_classes}},
                        args.out)
     print(f"\nBest val accuracy: {best_acc:.3f}  ->  saved {args.out}")
 

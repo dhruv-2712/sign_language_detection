@@ -87,17 +87,57 @@ def extract_image(frame_bgr, hand_landmarker, pose_landmarker):
     return _vectorize(hands, pose)
 
 
+HAND_CONNECTIONS = [
+    (0,1),(1,2),(2,3),(3,4),
+    (0,5),(5,6),(6,7),(7,8),
+    (5,9),(9,10),(10,11),(11,12),
+    (9,13),(13,14),(14,15),(15,16),
+    (13,17),(17,18),(18,19),(19,20),(0,17),
+]
+POSE_CONNECTIONS = [
+    (11,12),(11,13),(13,15),(12,14),(14,16),
+    (11,23),(12,24),(23,24),(23,25),(24,26),(25,27),(26,28),
+]
+HAND_COLORS = [(0, 255, 0), (255, 0, 255)]  # green for hand 1, magenta for hand 2
+
+
+def _draw_landmarks(frame, hands_result, pose_result):
+    h, w = frame.shape[:2]
+    for i, hand in enumerate(hands_result.hand_landmarks[:2]):
+        color = HAND_COLORS[i]
+        pts = [(int(lm.x * w), int(lm.y * h)) for lm in hand]
+        for a, b in HAND_CONNECTIONS:
+            cv2.line(frame, pts[a], pts[b], color, 2)
+        for px, py in pts:
+            cv2.circle(frame, (px, py), 4, color, -1)
+
+    if pose_result.pose_landmarks:
+        pose = pose_result.pose_landmarks[0]
+        pts = [(int(lm.x * w), int(lm.y * h)) for lm in pose]
+        for a, b in POSE_CONNECTIONS:
+            cv2.line(frame, pts[a], pts[b], (255, 200, 0), 2)
+        for idx in [11,12,13,14,15,16,23,24,25,26,27,28]:
+            cv2.circle(frame, pts[idx], 5, (0, 200, 255), -1)
+
+
 if __name__ == "__main__":
-    # Verification loop: confirm nonzero values appear when a hand is in frame.
     cap = cv2.VideoCapture(0)
+    cv2.namedWindow("landmarks", cv2.WINDOW_NORMAL)
+    cv2.resizeWindow("landmarks", 640, 480)
+    cv2.setWindowProperty("landmarks", cv2.WND_PROP_TOPMOST, 1)
     t = 0
-    print("Press Q to quit. Raise a hand into frame and watch for nonzero counts.")
+    print("Press Q to quit. Raise a hand into frame and watch the skeleton overlay.")
     while True:
         ok, frame = cap.read()
         if not ok:
             break
-        vec = extract(frame, t)
-        t += 33  # ~30 fps
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        img = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+        hands_result = hand_lm.detect_for_video(img, t)
+        pose_result = pose_lm.detect_for_video(img, t)
+        vec = _vectorize(hands_result, pose_result)
+        t += 33
+        _draw_landmarks(frame, hands_result, pose_result)
         nonzero = int(np.count_nonzero(vec))
         cv2.putText(frame, f"dim={vec.shape[0]} nonzero={nonzero}", (10, 30),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)

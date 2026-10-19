@@ -170,3 +170,4 @@ if __name__ == "__main__":
 - `demo.py` runs end-to-end: hardcoded word list → Claude sentence → spoken output.
 - INCLUDE repo cloned and at least one relevant category zip downloading/downloaded.
 - Everything committed to git with a short README noting what's real vs. placeholder.
+

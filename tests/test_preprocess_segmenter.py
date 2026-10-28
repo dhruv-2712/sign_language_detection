@@ -49,6 +49,13 @@ def test_segmenter_emits_one_clip_per_sign():
     assert [len(c) for c in clips] == [20, 15]
 
 
+def test_segmenter_pre_and_post_roll_add_context_frames():
+    seg = SignSegmenter(start_frames=3, end_gap=8, min_len=8, pre_roll=4, post_roll=3)
+    stream = [_frame(hand=False)] * 10 + [_frame()] * 20 + [_frame(hand=False)] * 12
+    clips = [c for c in (seg.push(f) for f in stream) if c is not None]
+    assert [len(c) for c in clips] == [4 + 20 + 3]
+
+
 def test_segmenter_ignores_short_blips():
     seg = SignSegmenter(start_frames=3, end_gap=5, min_len=8)
     stream = [_frame()] * 2 + [_frame(hand=False)] * 10

@@ -22,3 +22,7 @@ __pycache__/
 
 # Binary handoff deliverables (regenerable; keep repo lean)
 presentation/
+
+# Pretrained checkpoints
+models/*.pth
+models/pretrained/

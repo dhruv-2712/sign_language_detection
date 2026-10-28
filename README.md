@@ -106,3 +106,48 @@ Retrain after changing preprocessing: `python src/train_transformer.py --epochs 
 - Vocabulary is the 5 INCLUDE greetings. Add more by recording (`collect_data.py`) or
   converting more INCLUDE categories (`video_to_landmarks.py`), then retrain.
 - Evaluate on signers not in the training set before quoting accuracy.
+
+## Pretrained pipeline (submission 2)
+
+The final pipeline uses the **AI4Bharat INCLUDE pretrained Transformer** (263 Indian Sign
+Language words, upstream val accuracy 83.5%) instead of our small from-scratch model:
+
+```
+camera -> MediaPipe Tasks (hands+pose, VIDEO-mode tracking) -> hand-raise segmentation
+  -> 225->134 feature bridge -> pretrained INCLUDE Transformer (top-3 words)
+  -> Claude (words + runner-up guesses -> fluent sentence) -> pyttsx3 TTS
+```
+
+```powershell
+python src/download_pretrained.py      # one-time, ~205 MB checkpoint -> models/pretrained/
+python src/sign2speech.py              # LIVE webcam (SPACE = speak sentence, C = clear, Q = quit)
+python src/sign2speech.py --video a.MOV b.MOV   # same pipeline on video files
+python src/fetch_include_test.py       # download ONLY held-out INCLUDE test videos (HTTP range)
+python src/eval_include.py --root data/include_test   # evaluate the whole front half
+```
+
+Key engineering findings (all verified against upstream's legacy `mp.solutions` pipeline,
+which scores 38/41 = 92.7% on the Greetings test clips):
+
+- **Feature bridge** (`include_features.py`): the model expects 134 values/frame (25 upper-body
+  pose + 2 hands, x,y in 1920x1080 pixels). The Tasks-API pose's first 25 landmarks share the
+  legacy indices, so it is a re-indexing, not retraining.
+- **Tracking matters**: stateless IMAGE-mode detection dropped the signing hand (17/41);
+  VIDEO-mode tracking + hand confidence 0.3 + raised-hand-first slot ordering gives 34/41.
+- **Segmentation context**: clips get pre/post-roll frames because the model was trained on
+  whole videos, not trimmed hand-up runs.
+- The pose model (lite/full/heavy) made no difference; `SIGN_POSE_MODEL` selects it.
+
+### Results (held-out INCLUDE *test-split* videos the pretrained model never trained on)
+
+| Set | Videos | Classes | Top-1 | Top-3 |
+|-----|:-----:|:------:|:-----:|:-----:|
+| Greetings | 41 | 9 | 82.9% | 92.7% |
+| Greetings + Pronouns + Days/Time | 91 | 35 | 78.0% | 90.1% |
+| Upstream legacy-MediaPipe reference (Greetings) | 41 | 9 | 92.7% | - |
+
+Limits: the LLM step needs `ANTHROPIC_API_KEY` (without it the raw words are spoken; the
+prompt logic is unit-tested with a fake client, not yet exercised against the live API);
+the live webcam loop has not been run on a physical camera in this repo; the vocabulary is
+INCLUDE's 263 single words (no grammar, no name/water/help); webcam signers differ from the
+INCLUDE recordings, so expect lower accuracy until tested on the team.

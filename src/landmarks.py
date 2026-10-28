@@ -16,12 +16,16 @@ Mode = vision.RunningMode
 # so the module works no matter where a script is launched from.
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _HAND_MODEL = os.path.join(_REPO_ROOT, "models", "hand_landmarker.task")
-_POSE_MODEL = os.path.join(_REPO_ROOT, "models", "pose_landmarker_lite.task")
+# SIGN_POSE_MODEL=full|heavy|lite selects the pose model (lite is the default).
+_POSE_MODEL = os.path.join(
+    _REPO_ROOT, "models", f"pose_landmarker_{os.environ.get('SIGN_POSE_MODEL', 'lite')}.task")
 
 hand_lm = vision.HandLandmarker.create_from_options(
     vision.HandLandmarkerOptions(
         base_options=BaseOptions(model_asset_path=_HAND_MODEL),
-        running_mode=Mode.VIDEO, num_hands=2))
+        running_mode=Mode.VIDEO, num_hands=2,
+        min_hand_detection_confidence=0.3, min_hand_presence_confidence=0.3,
+        min_tracking_confidence=0.3))
 pose_lm = vision.PoseLandmarker.create_from_options(
     vision.PoseLandmarkerOptions(
         base_options=BaseOptions(model_asset_path=_POSE_MODEL),
@@ -76,6 +80,35 @@ def create_image_landmarkers():
             base_options=BaseOptions(model_asset_path=_POSE_MODEL),
             running_mode=Mode.IMAGE))
     return hlm, plm
+
+
+def create_video_landmarkers(hand_conf=0.3):
+    """Fresh VIDEO-mode landmarkers (frame-to-frame hand/pose tracking) for ONE clip.
+
+    Tracking keeps the signing hand detected between frames, like the legacy
+    mp.solutions pipeline the pretrained INCLUDE model was trained on. Make a new pair
+    per clip: VIDEO mode needs strictly increasing timestamps.
+    """
+    hlm = vision.HandLandmarker.create_from_options(
+        vision.HandLandmarkerOptions(
+            base_options=BaseOptions(model_asset_path=_HAND_MODEL),
+            running_mode=Mode.VIDEO, num_hands=2,
+            min_hand_detection_confidence=hand_conf, min_hand_presence_confidence=hand_conf,
+            min_tracking_confidence=hand_conf))
+    plm = vision.PoseLandmarker.create_from_options(
+        vision.PoseLandmarkerOptions(
+            base_options=BaseOptions(model_asset_path=_POSE_MODEL),
+            running_mode=Mode.VIDEO))
+    return hlm, plm
+
+
+def extract_video(frame_bgr, timestamp_ms, hand_landmarker, pose_landmarker):
+    """Return a (225,) vector using a VIDEO-mode landmarker pair (see create_video_landmarkers)."""
+    rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+    img = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+    hands = hand_landmarker.detect_for_video(img, timestamp_ms)
+    pose = pose_landmarker.detect_for_video(img, timestamp_ms)
+    return _vectorize(hands, pose)
 
 
 def extract_image(frame_bgr, hand_landmarker, pose_landmarker):

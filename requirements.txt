@@ -12,3 +12,8 @@ torch
 
 # Testing
 pytest
+
+# Pretrained INCLUDE pipeline
+transformers
+pandas
+remotezip

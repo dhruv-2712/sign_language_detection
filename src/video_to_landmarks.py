@@ -16,10 +16,27 @@ import os
 import cv2
 import numpy as np
 
-from landmarks import create_image_landmarkers, extract_image
+from landmarks import create_image_landmarkers, create_video_landmarkers, extract_image, extract_video
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 VIDEO_EXTS = (".mov", ".mp4", ".avi", ".mkv", ".webm")
+
+
+def clip_to_vector_sequence_tracked(path, hand_conf=0.3):
+    """Like clip_to_vector_sequence but with VIDEO-mode tracking (fresh landmarkers per clip)."""
+    hlm, plm = create_video_landmarkers(hand_conf)
+    cap = cv2.VideoCapture(path)
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    frames, i = [], 0
+    while True:
+        ok, frame = cap.read()
+        if not ok:
+            break
+        frames.append(extract_video(frame, int(i * 1000 / fps), hlm, plm))
+        i += 1
+    cap.release()
+    hlm.close(); plm.close()
+    return np.array(frames, dtype=np.float32) if frames else None
 
 
 def clip_to_vector_sequence(path, hlm, plm, stride=1):

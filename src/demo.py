@@ -8,7 +8,8 @@ import pyttsx3
 from groq import Groq
 
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-MODEL = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
+# gpt-oss-20b is available on the project's Groq account (llama-3.3-70b-versatile is not).
+MODEL = os.environ.get("GROQ_MODEL", "openai/gpt-oss-20b")
 
 _client = None
 _engine = None
@@ -60,10 +61,15 @@ def to_sentence(words, alternatives=None):
         prompt = (
             "Convert these sign-language glosses into one fluent English sentence, "
             f"reply with only the sentence: {' '.join(pretty(w) for w in words)}")
+    extra = {"reasoning_effort": "low"} if "gpt-oss" in MODEL else {}
+    # Reasoning models spend completion tokens on thinking, so leave generous headroom.
     msg = _get_client().chat.completions.create(
-        model=MODEL, max_tokens=80, temperature=0.2,
-        messages=[{"role": "user", "content": prompt}])
-    return msg.choices[0].message.content.strip()
+        model=MODEL, max_completion_tokens=400, temperature=0.2,
+        messages=[{"role": "user", "content": prompt}], **extra)
+    text = (msg.choices[0].message.content or "").strip()
+    if not text:
+        raise RuntimeError("LLM returned an empty reply")
+    return text
 
 
 if __name__ == "__main__":

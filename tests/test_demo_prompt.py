@@ -13,7 +13,7 @@ class _FakeClient:
         self.prompt = None
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
 
-    def _create(self, model, max_tokens, temperature, messages):
+    def _create(self, model, max_completion_tokens, temperature, messages, **extra):
         self.prompt = messages[0]["content"]
         msg = SimpleNamespace(content="  Hello, how are you?  ")
         return SimpleNamespace(choices=[SimpleNamespace(message=msg)])

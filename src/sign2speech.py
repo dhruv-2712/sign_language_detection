@@ -17,17 +17,25 @@ import cv2
 import numpy as np
 
 from include_features import to_include_features, resample_fps
-from include_model import load_pretrained, predict
+from include_model import load_pretrained, probabilities
 from segmenter import SignSegmenter
 
 TOPK = 3
+# Demo vocabulary: words that are easy to tell apart and have INCLUDE reference videos.
+DEMO_VOCAB = ["hello", "howareyou", "thankyou", "goodmorning", "goodafternoon", "goodevening",
+              "goodnight", "alright", "pleased", "i", "you", "we", "they", "he", "she", "it",
+              "today", "tomorrow", "yesterday"]
+MIN_VOCAB_MASS = 0.2     # prob. the full 263-way model puts on the demo words (non-demo signs ~0.03)
 
 
 class Recognizer:
     """Stream of per-frame 225-dim landmark vectors -> recognised (word, alternatives)."""
 
-    def __init__(self, threshold=0.55, fps=30.0, aspect=16 / 9):
-        self.model, self.idx_to_label = load_pretrained()
+    def __init__(self, threshold=0.5, fps=30.0, aspect=16 / 9, vocab=None, ckpt=None):
+        self.model, self.idx_to_label = load_pretrained(ckpt) if ckpt else load_pretrained()
+        l2i = {l: i for i, l in self.idx_to_label.items()}
+        self.vocab = [w for w in (vocab or DEMO_VOCAB) if w in l2i]
+        self.vocab_ids = np.array([l2i[w] for w in self.vocab])
         self.seg = SignSegmenter(start_frames=3, end_gap=12, min_len=12, max_len=160,
                                 pre_roll=8, post_roll=6)
         self.threshold, self.fps, self.aspect = threshold, fps, aspect
@@ -49,7 +57,13 @@ class Recognizer:
         if np.mean(np.all(np.any(sh != 0, axis=2), axis=1)) < 0.7:
             return None, [("(body not visible)", 0.0)]
         feats = resample_fps(to_include_features(clip, aspect=self.aspect), self.fps, 30.0)
-        top = [(self.idx_to_label[i], p) for i, p in predict(self.model, feats, k=TOPK)]
+        full = probabilities(self.model, feats)
+        mass = float(full[self.vocab_ids].sum())
+        p = full[self.vocab_ids] / max(mass, 1e-9)               # renormalised over demo words
+        order = np.argsort(-p)[:TOPK]
+        top = [(self.vocab[i], float(p[i])) for i in order]
+        if mass < MIN_VOCAB_MASS:                                # not one of the demo signs
+            return None, [("(not a demo sign)", mass)]
         return (top[0][0], top) if top[0][1] >= self.threshold else (None, top)
 
 
@@ -90,7 +104,7 @@ def speak_sentence(words, alts):
 
 def run_videos(paths, args):
     from landmarks import create_video_landmarkers, extract_video
-    rec = Recognizer(args.threshold)
+    rec = Recognizer(args.threshold, vocab=args.vocab.split(",") if args.vocab else None, ckpt=args.ckpt)
     words, alts = [], []
     for path in paths:
         hlm, plm = create_video_landmarkers()      # fresh tracker per video (timestamps restart)
@@ -123,11 +137,11 @@ def _emit(result, words, alts):
 
 
 def run_webcam(args):
-    from landmarks import extract
-    rec = Recognizer(args.threshold)
+    from landmarks import extract, open_camera
+    rec = Recognizer(args.threshold, vocab=args.vocab.split(",") if args.vocab else None, ckpt=args.ckpt)
     words, alts, t, last = [], [], 0, time.time()
     fps_est = 30.0
-    cap = cv2.VideoCapture(args.camera)
+    cap = open_camera(args.camera)
     status = ""
     warn = ""
     while True:
@@ -170,6 +184,8 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--video", nargs="+", help="run on video file(s) instead of the webcam")
     ap.add_argument("--camera", type=int, default=0)
-    ap.add_argument("--threshold", type=float, default=0.55)
+    ap.add_argument("--threshold", type=float, default=0.5)
+    ap.add_argument("--vocab", help="comma-separated words to recognise (default: demo vocabulary)")
+    ap.add_argument("--ckpt", help="fine-tuned checkpoint from finetune_webcam.py")
     a = ap.parse_args()
     run_videos(a.video, a) if a.video else run_webcam(a)

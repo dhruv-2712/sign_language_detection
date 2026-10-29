@@ -120,6 +120,21 @@ def extract_image(frame_bgr, hand_landmarker, pose_landmarker):
     return _vectorize(hands, pose)
 
 
+def open_camera(index=0, tries=(cv2.CAP_ANY, cv2.CAP_DSHOW, cv2.CAP_MSMF)):
+    """Open a webcam, trying several Windows backends until one actually delivers frames."""
+    import time
+    for backend in tries:
+        cap = cv2.VideoCapture(index, backend)
+        t0, got = time.time(), 0
+        while cap.isOpened() and time.time() - t0 < 2.0 and got < 3:
+            got += bool(cap.read()[0])
+        if got >= 3:
+            return cap
+        cap.release()
+    raise RuntimeError(f"Camera {index} gave no frames. Close other apps using it "
+                       "(Teams/Zoom/browser) and check Windows camera privacy settings.")
+
+
 HAND_CONNECTIONS = [
     (0,1),(1,2),(2,3),(3,4),
     (0,5),(5,6),(6,7),(7,8),

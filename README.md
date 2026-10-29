@@ -151,3 +151,26 @@ prompt logic is unit-tested with a fake client, not yet exercised against the li
 the live webcam loop has not been run on a physical camera in this repo; the vocabulary is
 INCLUDE's 263 single words (no grammar, no name/water/help); webcam signers differ from the
 INCLUDE recordings, so expect lower accuracy until tested on the team.
+
+## Making it work on YOUR webcam
+
+The pretrained model was trained on other signers filmed from far away, so a webcam needs
+adapting. Three layers handle that:
+
+1. **Geometry alignment** - if the signer is much closer/off-centre than in INCLUDE, shoulders are
+   mapped onto the training placement (`include_features.py`).
+2. **Closed demo vocabulary** - only ~19 words can be output (`DEMO_VOCAB` in `sign2speech.py`),
+   and signs outside it are rejected via the probability mass the 263-way model puts on them
+   (in-vocab ~0.96, other signs ~0.03). On held-out clips this lifts top-1 from 82% to 88%.
+3. **Record + fine-tune on your own clips** (recommended before the demo, ~10 minutes):
+
+```powershell
+python src/fetch_include_test.py                       # reference videos for each sign (once)
+python src/record_signs.py --labels hello,you,howareyou,thankyou --clips 8
+#   SPACE = arm, sign, drop hands to save | R = watch the reference ISL sign | N/P = next/prev
+python src/finetune_webcam.py                          # ~1 minute on CPU
+python src/sign2speech.py --ckpt models/pretrained/finetuned_webcam.pth --vocab hello,you,howareyou,thankyou
+```
+
+Not verified on a physical camera in this repo; the record -> fine-tune -> recognise path was
+tested with simulated close-up clips only.

@@ -77,6 +77,22 @@ def load_pretrained(ckpt_path=CKPT, device="cpu"):
     return model.to(device).eval(), idx_to_label
 
 
+def pad_features(feats):
+    t = feats.shape[0]
+    if t > MAX_FRAMES:
+        feats = feats[np.linspace(0, t - 1, MAX_FRAMES).astype(int)]
+    padded = np.zeros((MAX_FRAMES, feats.shape[1]), dtype=np.float32)
+    padded[: len(feats)] = feats
+    return padded
+
+
+@torch.no_grad()
+def probabilities(model, feats, device="cpu"):
+    """feats: (T,134) -> softmax probabilities over all 263 words, as a numpy array."""
+    x = torch.from_numpy(pad_features(feats)).unsqueeze(0).to(device)
+    return torch.softmax(model(x), dim=-1)[0].cpu().numpy()
+
+
 @torch.no_grad()
 def predict(model, feats, k=3, device="cpu"):
     """feats: (T,134) from include_features.to_include_features -> [(label_idx, prob)] top-k."""

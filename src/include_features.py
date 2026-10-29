@@ -26,11 +26,21 @@ def _interp_nan(a):
     return out
 
 
-def to_include_features(seq, two_hand_order="raised_first", aspect=16 / 9):
+# Typical signer placement in the INCLUDE training videos (1920x1080 px): median shoulder
+# midpoint and shoulder width over the test clips. The model uses RAW pixel coordinates, so
+# a webcam signer who sits closer / off-centre must be mapped onto this placement.
+REF_CENTER = np.array([950.0, 393.0])
+REF_SHOULDER_W = 260.0
+
+
+def to_include_features(seq, two_hand_order="raised_first", aspect=16 / 9, align=True):
     """(T,225) raw landmark sequence -> (T,134) INCLUDE features.
 
     aspect: width/height of the source frame. The model was trained on 16:9 video, so a 4:3
     webcam frame is mapped to a centred 16:9 canvas with the SAME pixel scale (no stretching).
+
+    align: map the clip's median shoulder midpoint/width onto the INCLUDE reference placement
+    (scale + shift, no rotation) so camera distance/position doesn't matter.
 
     two_hand_order: how to order hand1/hand2 when BOTH hands are visible in a frame
     ("track" = keep each hand in the slot it had in the previous frame, first frame raised hand
@@ -85,6 +95,14 @@ def to_include_features(seq, two_hand_order="raised_first", aspect=16 / 9):
     else:                                    # uniform scale, centred horizontally
         out[..., 0] = (out[..., 0] - 0.5) * FRAME_H * aspect + FRAME_W / 2
         out[..., 1] = out[..., 1] * FRAME_H
+    if align:
+        sh = out[:, [11, 12]]                                   # pose shoulders, pixel space
+        ok = (sh != 0).any(axis=(1, 2))
+        if ok.any():
+            mid = np.median(sh[ok].mean(axis=1), axis=0)
+            width = np.median(np.linalg.norm(sh[ok, 0] - sh[ok, 1], axis=1))
+            if width > 20:
+                out = (out - mid) * (REF_SHOULDER_W / width) + REF_CENTER
     return out.reshape(T, -1).astype(np.float32)
 
 

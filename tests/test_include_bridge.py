@@ -63,3 +63,15 @@ def test_4_3_frames_are_not_stretched():
     # 4:3 centre (x=0.5) lands at canvas centre; y scale unchanged
     assert abs(f[0, 2 * 15] - ((0.715 - 0.5) * 1080 * 4 / 3 + 960)) < 5
     assert abs(f[0, 2 * 15 + 1] - 0.515 * 1080) < 5
+
+
+def test_alignment_makes_close_and_far_signers_identical():
+    base = _seq().reshape(10, 75, 3)
+    base[:, 42 + 11] = [0.4, 0.5, 0]
+    base[:, 42 + 12] = [0.6, 0.5, 0]
+    big = base.copy()
+    nz = (big != 0).any(2, keepdims=True)
+    big[..., :2] = np.where(nz, (big[..., :2] - 0.5) * 2.0 + 0.5 + 0.1, 0)
+    a = to_include_features(base.reshape(10, 225))
+    b = to_include_features(big.reshape(10, 225))
+    assert np.abs(a - b).max() < 2.0

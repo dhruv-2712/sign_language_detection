@@ -53,6 +53,28 @@ class Recognizer:
         return (top[0][0], top) if top[0][1] >= self.threshold else (None, top)
 
 
+def draw_skeleton(frame, vec):
+    """Draw hand skeletons (green/magenta) and upper-body pose (blue) from a 225-dim vector."""
+    from landmarks import HAND_CONNECTIONS, POSE_CONNECTIONS, HAND_COLORS
+    h, w = frame.shape[:2]
+    pts = vec.reshape(75, 3)[:, :2] * [w, h]
+    for k in range(2):
+        hand = pts[k * 21:(k + 1) * 21]
+        if not vec.reshape(75, 3)[k * 21:(k + 1) * 21].any():
+            continue
+        for a, b in HAND_CONNECTIONS:
+            cv2.line(frame, tuple(hand[a].astype(int)), tuple(hand[b].astype(int)), HAND_COLORS[k], 2)
+        for p in hand:
+            cv2.circle(frame, tuple(p.astype(int)), 4, HAND_COLORS[k], -1)
+    pose, raw = pts[42:], vec.reshape(75, 3)[42:]
+    for a, b in POSE_CONNECTIONS:
+        if raw[a].any() and raw[b].any():
+            cv2.line(frame, tuple(pose[a].astype(int)), tuple(pose[b].astype(int)), (255, 200, 0), 2)
+    for i in (0, 11, 12, 13, 14, 15, 16, 23, 24):
+        if raw[i].any():
+            cv2.circle(frame, tuple(pose[i].astype(int)), 5, (0, 200, 255), -1)
+
+
 def speak_sentence(words, alts):
     from demo import to_sentence, speak
     try:
@@ -127,10 +149,7 @@ def run_webcam(args):
             status = " | ".join(f"{g} {p:.0%}" for g, p in res[1])
         cv2.putText(frame, ("SIGNING " if rec.seg.active else "idle ") + status, (10, 28),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-        h, w = frame.shape[:2]
-        for x, y, _ in pts[(np.arange(75) < 42) | np.isin(np.arange(75) - 42, [0, 11, 12, 13, 14, 15, 16, 23, 24])]:
-            if x or y:
-                cv2.circle(frame, (int(x * w), int(y * h)), 3, (0, 255, 0), -1)
+        draw_skeleton(frame, vec)
         if warn:
             cv2.putText(frame, warn, (10, frame.shape[0] - 15), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
         cv2.putText(frame, " ".join(words), (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)

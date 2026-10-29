@@ -26,3 +26,6 @@ presentation/
 # Pretrained checkpoints
 models/*.pth
 models/pretrained/
+
+# webcam debug/recorded clips (personal data)
+data/

@@ -11,6 +11,7 @@ Keys (webcam): SPACE = finish sentence (LLM + speech), C = clear, Q = quit.
 Without GROQ_API_KEY the recognised words are spoken as-is.
 """
 import argparse
+import os
 import time
 
 import cv2
@@ -25,13 +26,13 @@ TOPK = 3
 DEMO_VOCAB = ["hello", "howareyou", "thankyou", "goodmorning", "goodafternoon", "goodevening",
               "goodnight", "alright", "pleased", "i", "you", "we", "they", "he", "she", "it",
               "today", "tomorrow", "yesterday"]
-MIN_VOCAB_MASS = 0.2     # prob. the full 263-way model puts on the demo words (non-demo signs ~0.03)
+MIN_VOCAB_MASS = 0.3     # prob. the full 263-way model puts on the demo words (non-demo signs ~0.03)
 
 
 class Recognizer:
     """Stream of per-frame 225-dim landmark vectors -> recognised (word, alternatives)."""
 
-    def __init__(self, threshold=0.5, fps=30.0, aspect=16 / 9, vocab=None, ckpt=None):
+    def __init__(self, threshold=0.6, fps=30.0, aspect=16 / 9, vocab=None, ckpt=None, debug_dir=None):
         self.model, self.idx_to_label = load_pretrained(ckpt) if ckpt else load_pretrained()
         l2i = {l: i for i, l in self.idx_to_label.items()}
         self.vocab = [w for w in (vocab or DEMO_VOCAB) if w in l2i]
@@ -39,6 +40,7 @@ class Recognizer:
         self.seg = SignSegmenter(start_frames=3, end_gap=12, min_len=12, max_len=160,
                                 pre_roll=8, post_roll=6)
         self.threshold, self.fps, self.aspect = threshold, fps, aspect
+        self.debug_dir, self.last_info, self._n = debug_dir, {}, 0
 
     def push(self, vec):
         clip = self.seg.push(vec)
@@ -52,19 +54,36 @@ class Recognizer:
             return None if clip is None else self.classify(clip)
 
     def classify(self, clip):
-        # Need the signer's shoulders in most frames; otherwise the pose input is garbage.
+        word, top, info = self._decide(clip)
+        info["frames"] = len(clip)
+        self.last_info = info
+        if self.debug_dir:                                    # keep every decision for inspection
+            os.makedirs(self.debug_dir, exist_ok=True)
+            tag = word or "REJECTED"
+            np.savez(os.path.join(self.debug_dir, f"{self._n:03d}_{tag}.npz"), seq=clip,
+                     fps=self.fps, aspect=self.aspect, **{k: v for k, v in info.items() if k != "why"})
+            self._n += 1
+        return (word, top)
+
+    def _decide(self, clip):
+        hands = clip[:, :126].reshape(len(clip), 2, 21, 3)
+        if np.mean(np.any(hands != 0, axis=(1, 2, 3))) < 0.5:   # hands must be there for most of it
+            return None, [("(hands not visible)", 0.0)], {"why": "few hands"}
         sh = clip.reshape(len(clip), 75, 3)[:, [42 + 11, 42 + 12]]
         if np.mean(np.all(np.any(sh != 0, axis=2), axis=1)) < 0.7:
-            return None, [("(body not visible)", 0.0)]
+            return None, [("(body not visible)", 0.0)], {"why": "no shoulders"}
         feats = resample_fps(to_include_features(clip, aspect=self.aspect), self.fps, 30.0)
         full = probabilities(self.model, feats)
         mass = float(full[self.vocab_ids].sum())
         p = full[self.vocab_ids] / max(mass, 1e-9)               # renormalised over demo words
         order = np.argsort(-p)[:TOPK]
         top = [(self.vocab[i], float(p[i])) for i in order]
+        info = {"mass": round(mass, 3), "conf": round(top[0][1], 3), "why": ""}
         if mass < MIN_VOCAB_MASS:                                # not one of the demo signs
-            return None, [("(not a demo sign)", mass)]
-        return (top[0][0], top) if top[0][1] >= self.threshold else (None, top)
+            return None, [("(not a demo sign)", mass)], {**info, "why": "low mass"}
+        if top[0][1] < self.threshold:
+            return None, top, {**info, "why": "low confidence"}
+        return top[0][0], top, info
 
 
 def draw_skeleton(frame, vec):
@@ -116,9 +135,9 @@ def run_videos(paths, args):
             ok, frame = cap.read()
             if not ok:
                 break
-            _emit(rec.push(extract_video(frame, int(i * 1000 / rec.fps), hlm, plm)), words, alts)
+            _emit(rec.push(extract_video(frame, int(i * 1000 / rec.fps), hlm, plm)), words, alts, rec)
             i += 1
-        _emit(rec.flush(), words, alts)
+        _emit(rec.flush(), words, alts, rec)
         cap.release(); hlm.close(); plm.close()
         for _ in range(rec.seg.end_gap):          # pause between videos = gap between signs
             rec.push(np.zeros(225))
@@ -126,11 +145,13 @@ def run_videos(paths, args):
         speak_sentence(words, alts)
 
 
-def _emit(result, words, alts):
+def _emit(result, words, alts, rec=None):
     if result is None:
         return
     word, top = result
-    print("  sign ->", " | ".join(f"{g} {p:.0%}" for g, p in top), "" if word else "(rejected: low confidence)")
+    info = rec.last_info if rec else {}
+    detail = f"  [mass {info.get('mass', 0):.2f}, {info.get('frames', 0)} frames]" if info else ""
+    print("  sign ->", " | ".join(f"{g} {p:.0%}" for g, p in top), detail, "" if word else "(REJECTED)")
     if word:
         words.append(word)
         alts.append(top)
@@ -138,7 +159,8 @@ def _emit(result, words, alts):
 
 def run_webcam(args):
     from landmarks import extract, open_camera
-    rec = Recognizer(args.threshold, vocab=args.vocab.split(",") if args.vocab else None, ckpt=args.ckpt)
+    rec = Recognizer(args.threshold, vocab=args.vocab.split(",") if args.vocab else None, ckpt=args.ckpt,
+                     debug_dir=os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "debug_clips"))
     words, alts, t, last = [], [], 0, time.time()
     fps_est = 30.0
     cap = open_camera(args.camera)
@@ -159,8 +181,9 @@ def run_webcam(args):
         warn = "" if body_ok else "STEP BACK: shoulders not visible"
         res = rec.push(vec)
         if res is not None:
-            _emit(res, words, alts)
-            status = " | ".join(f"{g} {p:.0%}" for g, p in res[1])
+            _emit(res, words, alts, rec)
+            i = rec.last_info
+            status = ("ACCEPTED " if res[0] else "rejected ") + " | ".join(f"{g} {p:.0%}" for g, p in res[1]) + f"  (mass {i.get('mass', 0):.2f}, {i.get('frames', 0)}f)"
         cv2.putText(frame, ("SIGNING " if rec.seg.active else "idle ") + status, (10, 28),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
         draw_skeleton(frame, vec)
@@ -184,7 +207,7 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--video", nargs="+", help="run on video file(s) instead of the webcam")
     ap.add_argument("--camera", type=int, default=0)
-    ap.add_argument("--threshold", type=float, default=0.5)
+    ap.add_argument("--threshold", type=float, default=0.6)
     ap.add_argument("--vocab", help="comma-separated words to recognise (default: demo vocabulary)")
     ap.add_argument("--ckpt", help="fine-tuned checkpoint from finetune_webcam.py")
     a = ap.parse_args()

@@ -40,7 +40,10 @@ def to_include_features(seq, two_hand_order="raised_first", aspect=16 / 9, align
     webcam frame is mapped to a centred 16:9 canvas with the SAME pixel scale (no stretching).
 
     align: map the clip's median shoulder midpoint/width onto the INCLUDE reference placement
-    (scale + shift, no rotation) so camera distance/position doesn't matter.
+    (scale + shift, no rotation) so camera distance/position doesn't matter. Only applied when
+    the signer is clearly outside the training videos' range (width outside 0.75-1.35x, or
+    centre >130 px off); in-range clips are left untouched because that costs accuracy.
+    align="always" forces it.
 
     two_hand_order: how to order hand1/hand2 when BOTH hands are visible in a frame
     ("track" = keep each hand in the slot it had in the previous frame, first frame raised hand
@@ -101,7 +104,8 @@ def to_include_features(seq, two_hand_order="raised_first", aspect=16 / 9, align
         if ok.any():
             mid = np.median(sh[ok].mean(axis=1), axis=0)
             width = np.median(np.linalg.norm(sh[ok, 0] - sh[ok, 1], axis=1))
-            if width > 20:
+            far = (not 0.75 <= width / REF_SHOULDER_W <= 1.35) or np.abs(mid - REF_CENTER).max() > 130
+            if width > 20 and (far or align == "always"):
                 moved = (out - mid) * (REF_SHOULDER_W / width) + REF_CENTER
                 out = np.where(out != 0, moved, 0.0)        # never-detected landmarks stay exactly 0
     return out.reshape(T, -1).astype(np.float32)

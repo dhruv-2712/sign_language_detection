@@ -1,13 +1,14 @@
-"""Phase 5 demo: recognized glosses -> Claude (fluent sentence) -> offline TTS.
+"""Phase 5 demo: recognized glosses -> Groq LLM (fluent sentence) -> offline TTS.
 
-Requires ANTHROPIC_API_KEY in the environment for the Claude call.
+Requires GROQ_API_KEY in the environment for the LLM call (GROQ_MODEL optionally overrides the model).
 pyttsx3 is offline and needs no key.
 """
 import os
 import pyttsx3
-from anthropic import Anthropic
+from groq import Groq
 
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+MODEL = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
 
 _client = None
 _engine = None
@@ -16,7 +17,7 @@ _engine = None
 def _get_client():
     global _client
     if _client is None:
-        _client = Anthropic()
+        _client = Groq()
     return _client
 
 
@@ -59,10 +60,10 @@ def to_sentence(words, alternatives=None):
         prompt = (
             "Convert these sign-language glosses into one fluent English sentence, "
             f"reply with only the sentence: {' '.join(pretty(w) for w in words)}")
-    msg = _get_client().messages.create(
-        model="claude-haiku-4-5-20251001", max_tokens=80,
+    msg = _get_client().chat.completions.create(
+        model=MODEL, max_tokens=80, temperature=0.2,
         messages=[{"role": "user", "content": prompt}])
-    return msg.content[0].text.strip()
+    return msg.choices[0].message.content.strip()
 
 
 if __name__ == "__main__":

@@ -5,7 +5,7 @@ numpy
 scikit-learn
 joblib
 pyttsx3
-anthropic
+groq
 
 # Real Transformer model (Phase 3)
 torch

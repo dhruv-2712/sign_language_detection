@@ -11,11 +11,12 @@ import demo  # noqa: E402
 class _FakeClient:
     def __init__(self):
         self.prompt = None
-        self.messages = SimpleNamespace(create=self._create)
+        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
 
-    def _create(self, model, max_tokens, messages):
+    def _create(self, model, max_tokens, temperature, messages):
         self.prompt = messages[0]["content"]
-        return SimpleNamespace(content=[SimpleNamespace(text="  Hello, how are you?  ")])
+        msg = SimpleNamespace(content="  Hello, how are you?  ")
+        return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
 
 
 def test_prompt_includes_alternatives_and_pretty_names():

@@ -2,13 +2,13 @@
 
     camera/video -> MediaPipe hands+pose -> hand-raise segmentation
       -> INCLUDE feature bridge -> pretrained Transformer (top-k words)
-      -> Claude (words + runner-up guesses -> one fluent sentence) -> TTS
+      -> LLM via Groq (words + runner-up guesses -> one fluent sentence) -> TTS
 
 Usage:
     python src/sign2speech.py                      # live webcam
     python src/sign2speech.py --video a.MOV b.MOV  # run the same pipeline on video files
 Keys (webcam): SPACE = finish sentence (LLM + speech), C = clear, Q = quit.
-Without ANTHROPIC_API_KEY the recognised words are spoken as-is.
+Without GROQ_API_KEY the recognised words are spoken as-is.
 """
 import argparse
 import time

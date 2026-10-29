@@ -5,10 +5,10 @@ Usage:
 
 Sign naturally in front of the camera; each time you drop your hands a word is
 recognised and appended to the sentence. Keys:
-    SPACE  finish sentence: Claude turns the words into a fluent sentence, spoken aloud
+    SPACE  finish sentence: the Groq LLM turns the words into a fluent sentence, spoken aloud
     C      clear the current words
     Q      quit
-Without ANTHROPIC_API_KEY the raw words are spoken instead.
+Without GROQ_API_KEY the raw words are spoken instead.
 """
 import argparse
 import os
@@ -40,7 +40,7 @@ def classify(model, idx_to_label, clip, max_len, threshold):
 
 
 def finish_sentence(words, status):
-    """Words -> Claude sentence -> TTS (runs in a thread so the video doesn't freeze)."""
+    """Words -> LLM sentence -> TTS (runs in a thread so the video doesn't freeze)."""
     def work():
         try:
             from demo import to_sentence, speak

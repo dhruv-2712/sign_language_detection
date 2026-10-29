@@ -21,14 +21,14 @@ Everything except the classifier is a pretrained / inference-only component.
 | `landmarks.py` — MediaPipe Tasks API extraction (225-dim/frame) | **Real**, used everywhere |
 | `collect_data.py` — webcam clip recorder | **Real** tooling |
 | `train_baseline.py` — average-pool + MLPClassifier | **Placeholder** — disposable sanity check, NOT the final model |
-| `demo.py` — glosses -> Claude -> pyttsx3 TTS | **Real** wiring, hardcoded input for now |
+| `demo.py` — glosses -> Groq LLM -> pyttsx3 TTS | **Real** wiring, hardcoded input for now |
 | `model.py` / `train_transformer.py` — Transformer classifier | **Real** — the actual deliverable; trains on landmark sequences |
 | `dataset.py` — variable-length clip loader + padding masks | **Real** |
 | `video_to_landmarks.py` — turn ISL videos into `.npy` clips | **Real** — feeds INCLUDE data through our extractor |
-| `preprocess.py` � shoulder-centred/scaled normalisation + augmentation | **Real** � used in training and live inference |
-| `segmenter.py` � splits a continuous stream into per-sign clips (hand presence) | **Real** |
-| `evaluate.py` � per-class accuracy + confusion matrix | **Real** |
-| `live_demo.py` � webcam -> segment -> Transformer -> Claude -> TTS | **Real** � the end-to-end demo |
+| `preprocess.py` — shoulder-centred/scaled normalisation + augmentation | **Real** — used in training and live inference |
+| `segmenter.py` — splits a continuous stream into per-sign clips (hand presence) | **Real** |
+| `evaluate.py` — per-class accuracy + confusion matrix | **Real** |
+| `live_demo.py` — webcam -> segment -> Transformer -> Groq LLM -> TTS | **Real** — the end-to-end demo |
 | `tests/test_pipeline.py` — synthetic end-to-end smoke test | **Real** — verifies training with no data/webcam |
 
 The Phase 4 MLP classifier only proves the data → features → prediction path
@@ -41,9 +41,9 @@ with a learnable `[CLS]` token and padding masks.
 ```powershell
 python -m venv venv
 venv\Scripts\activate            # Windows  (use: source venv/bin/activate  on Linux/macOS)
-pip install mediapipe opencv-python numpy scikit-learn joblib pyttsx3 anthropic
+pip install mediapipe opencv-python numpy scikit-learn joblib pyttsx3 groq
 python src/setup_models.py       # downloads the .task model files into models/
-$env:ANTHROPIC_API_KEY = "..."   # needed for demo.py only
+$env:GROQ_API_KEY = "..."   # needed for demo.py only
 ```
 
 ## Feature vector (225-dim per frame)
@@ -61,7 +61,7 @@ python src/train_baseline.py      # disposable MLP sanity check -> models/baseli
 python src/train_transformer.py --data_dir data/raw_landmarks --epochs 40   # the real model -> models/sign_transformer.pt
 python src/evaluate.py            # per-class accuracy + confusion matrix on the val split
 python src/live_demo.py           # LIVE: sign at the webcam; SPACE = speak sentence, C = clear, Q = quit
-python src/demo.py                # glosses -> Claude sentence -> spoken output
+python src/demo.py                # glosses -> LLM sentence -> spoken output
 python tests/test_pipeline.py     # synthetic smoke test (no webcam/data needed)
 ```
 
@@ -115,7 +115,7 @@ Language words, upstream val accuracy 83.5%) instead of our small from-scratch m
 ```
 camera -> MediaPipe Tasks (hands+pose, VIDEO-mode tracking) -> hand-raise segmentation
   -> 225->134 feature bridge -> pretrained INCLUDE Transformer (top-3 words)
-  -> Claude (words + runner-up guesses -> fluent sentence) -> pyttsx3 TTS
+  -> Groq LLM (words + runner-up guesses -> fluent sentence) -> pyttsx3 TTS
 ```
 
 ```powershell
@@ -146,7 +146,7 @@ which scores 38/41 = 92.7% on the Greetings test clips):
 | Greetings + Pronouns + Days/Time | 91 | 35 | 78.0% | 90.1% |
 | Upstream legacy-MediaPipe reference (Greetings) | 41 | 9 | 92.7% | - |
 
-Limits: the LLM step needs `ANTHROPIC_API_KEY` (without it the raw words are spoken; the
+Limits: the LLM step needs `GROQ_API_KEY` (without it the raw words are spoken; the
 prompt logic is unit-tested with a fake client, not yet exercised against the live API);
 the live webcam loop has not been run on a physical camera in this repo; the vocabulary is
 INCLUDE's 263 single words (no grammar, no name/water/help); webcam signers differ from the

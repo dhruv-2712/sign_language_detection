@@ -55,3 +55,11 @@ def test_hands_at_sides_do_not_count_as_signing():
     assert not hand_present(v)
     v.reshape(75, 3)[0] = [0.5, 0.4, 0]                 # raised
     assert hand_present(v)
+
+
+def test_4_3_frames_are_not_stretched():
+    # same physical hand-to-shoulder distances must give the same pixel geometry as 16:9
+    f = to_include_features(_seq(), aspect=4 / 3)
+    # 4:3 centre (x=0.5) lands at canvas centre; y scale unchanged
+    assert abs(f[0, 2 * 15] - ((0.715 - 0.5) * 1080 * 4 / 3 + 960)) < 5
+    assert abs(f[0, 2 * 15 + 1] - 0.515 * 1080) < 5

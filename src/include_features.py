@@ -26,8 +26,11 @@ def _interp_nan(a):
     return out
 
 
-def to_include_features(seq, two_hand_order="raised_first"):
+def to_include_features(seq, two_hand_order="raised_first", aspect=16 / 9):
     """(T,225) raw landmark sequence -> (T,134) INCLUDE features.
+
+    aspect: width/height of the source frame. The model was trained on 16:9 video, so a 4:3
+    webcam frame is mapped to a centred 16:9 canvas with the SAME pixel scale (no stretching).
 
     two_hand_order: how to order hand1/hand2 when BOTH hands are visible in a frame
     ("track" = keep each hand in the slot it had in the previous frame, first frame raised hand
@@ -74,10 +77,14 @@ def to_include_features(seq, two_hand_order="raised_first"):
         if not np.isnan(h2[t, 0, 0]):
             prev2 = h2[t, 0]
 
-    scale = np.array([FRAME_W, FRAME_H])
     parts = [_interp_nan(p.reshape(T, -1, 2).reshape(T, -1)) for p in (pose, h1, h2)]
     out = np.concatenate(parts, axis=1)
-    out = out.reshape(T, -1, 2) * scale
+    out = out.reshape(T, -1, 2)
+    if abs(aspect - FRAME_W / FRAME_H) < 0.02:
+        out = out * np.array([FRAME_W, FRAME_H])
+    else:                                    # uniform scale, centred horizontally
+        out[..., 0] = (out[..., 0] - 0.5) * FRAME_H * aspect + FRAME_W / 2
+        out[..., 1] = out[..., 1] * FRAME_H
     return out.reshape(T, -1).astype(np.float32)
 
 

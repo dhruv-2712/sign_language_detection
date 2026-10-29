@@ -26,11 +26,11 @@ TOPK = 3
 class Recognizer:
     """Stream of per-frame 225-dim landmark vectors -> recognised (word, alternatives)."""
 
-    def __init__(self, threshold=0.35, fps=30.0):
+    def __init__(self, threshold=0.55, fps=30.0, aspect=16 / 9):
         self.model, self.idx_to_label = load_pretrained()
         self.seg = SignSegmenter(start_frames=3, end_gap=12, min_len=12, max_len=160,
                                 pre_roll=8, post_roll=6)
-        self.threshold, self.fps = threshold, fps
+        self.threshold, self.fps, self.aspect = threshold, fps, aspect
 
     def push(self, vec):
         clip = self.seg.push(vec)
@@ -44,7 +44,11 @@ class Recognizer:
             return None if clip is None else self.classify(clip)
 
     def classify(self, clip):
-        feats = resample_fps(to_include_features(clip), self.fps, 30.0)
+        # Need the signer's shoulders in most frames; otherwise the pose input is garbage.
+        sh = clip.reshape(len(clip), 75, 3)[:, [42 + 11, 42 + 12]]
+        if np.mean(np.all(np.any(sh != 0, axis=2), axis=1)) < 0.7:
+            return None, [("(body not visible)", 0.0)]
+        feats = resample_fps(to_include_features(clip, aspect=self.aspect), self.fps, 30.0)
         top = [(self.idx_to_label[i], p) for i, p in predict(self.model, feats, k=TOPK)]
         return (top[0][0], top) if top[0][1] >= self.threshold else (None, top)
 
@@ -70,6 +74,7 @@ def run_videos(paths, args):
         hlm, plm = create_video_landmarkers()      # fresh tracker per video (timestamps restart)
         cap = cv2.VideoCapture(path)
         rec.fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+        rec.aspect = cap.get(cv2.CAP_PROP_FRAME_WIDTH) / cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
         i = 0
         while True:
             ok, frame = cap.read()
@@ -102,6 +107,7 @@ def run_webcam(args):
     fps_est = 30.0
     cap = cv2.VideoCapture(args.camera)
     status = ""
+    warn = ""
     while True:
         ok, frame = cap.read()
         if not ok:
@@ -110,12 +116,23 @@ def run_webcam(args):
         fps_est = 0.9 * fps_est + 0.1 * (1.0 / max(now - last, 1e-3))
         last, rec.fps = now, fps_est
         t += 33
-        res = rec.push(extract(frame, t))
+        rec.aspect = frame.shape[1] / frame.shape[0]
+        vec = extract(frame, t)
+        pts = vec.reshape(75, 3)
+        body_ok = bool(pts[42 + 11].any() and pts[42 + 12].any())
+        warn = "" if body_ok else "STEP BACK: shoulders not visible"
+        res = rec.push(vec)
         if res is not None:
             _emit(res, words, alts)
             status = " | ".join(f"{g} {p:.0%}" for g, p in res[1])
         cv2.putText(frame, ("SIGNING " if rec.seg.active else "idle ") + status, (10, 28),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+        h, w = frame.shape[:2]
+        for x, y, _ in pts[(np.arange(75) < 42) | np.isin(np.arange(75) - 42, [0, 11, 12, 13, 14, 15, 16, 23, 24])]:
+            if x or y:
+                cv2.circle(frame, (int(x * w), int(y * h)), 3, (0, 255, 0), -1)
+        if warn:
+            cv2.putText(frame, warn, (10, frame.shape[0] - 15), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
         cv2.putText(frame, " ".join(words), (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
         cv2.imshow("sign2speech", frame)
         key = cv2.waitKey(1) & 0xFF
@@ -134,6 +151,6 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--video", nargs="+", help="run on video file(s) instead of the webcam")
     ap.add_argument("--camera", type=int, default=0)
-    ap.add_argument("--threshold", type=float, default=0.35)
+    ap.add_argument("--threshold", type=float, default=0.55)
     a = ap.parse_args()
     run_videos(a.video, a) if a.video else run_webcam(a)

@@ -102,7 +102,8 @@ def to_include_features(seq, two_hand_order="raised_first", aspect=16 / 9, align
             mid = np.median(sh[ok].mean(axis=1), axis=0)
             width = np.median(np.linalg.norm(sh[ok, 0] - sh[ok, 1], axis=1))
             if width > 20:
-                out = (out - mid) * (REF_SHOULDER_W / width) + REF_CENTER
+                moved = (out - mid) * (REF_SHOULDER_W / width) + REF_CENTER
+                out = np.where(out != 0, moved, 0.0)        # never-detected landmarks stay exactly 0
     return out.reshape(T, -1).astype(np.float32)
 
 

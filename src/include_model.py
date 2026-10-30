@@ -77,6 +77,19 @@ def load_pretrained(ckpt_path=CKPT, device="cpu"):
     return model.to(device).eval(), idx_to_label
 
 
+def checkpoint_labels(ckpt_path):
+    """Words a fine-tuned checkpoint was trained on: stored in it, else the recorded-clip folders."""
+    import glob
+    try:
+        ck = torch.load(ckpt_path, map_location="cpu", weights_only=True)
+        if isinstance(ck, dict) and ck.get("labels"):
+            return list(ck["labels"])
+    except Exception:
+        pass
+    root = os.path.join(REPO_ROOT, "data", "webcam_clips")
+    return sorted({os.path.basename(os.path.dirname(f)) for f in glob.glob(os.path.join(root, "*", "*.npz"))})
+
+
 def pad_features(feats):
     t = feats.shape[0]
     if t > MAX_FRAMES:

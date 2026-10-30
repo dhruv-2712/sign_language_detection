@@ -56,6 +56,16 @@ def test_segmenter_pre_and_post_roll_add_context_frames():
     assert [len(c) for c in clips] == [4 + 20 + 3]
 
 
+def test_resting_hands_do_not_count_even_without_hips():
+    # sitting close: shoulders visible, hips out of frame, hand low near the lap
+    from segmenter import hand_present
+    v = _frame(hand=False)
+    v.reshape(75, 3)[0] = [0.5, 0.95, 0]            # hand far below shoulders (y 0.5, width 0.2)
+    assert not hand_present(v)
+    v.reshape(75, 3)[0] = [0.5, 0.4, 0]             # raised near the face
+    assert hand_present(v)
+
+
 def test_segmenter_ignores_short_blips():
     seg = SignSegmenter(start_frames=3, end_gap=5, min_len=8)
     stream = [_frame()] * 2 + [_frame(hand=False)] * 10

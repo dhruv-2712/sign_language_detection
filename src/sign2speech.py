@@ -19,7 +19,7 @@ import cv2
 import numpy as np
 
 from include_features import to_include_features, resample_fps
-from include_model import load_pretrained, probabilities
+from include_model import load_pretrained, probabilities, checkpoint_labels
 from segmenter import SignSegmenter
 
 TOPK = 3
@@ -37,7 +37,10 @@ class Recognizer:
     def __init__(self, threshold=0.6, fps=30.0, aspect=16 / 9, vocab=None, ckpt=None, debug_dir=None):
         self.model, self.idx_to_label = load_pretrained(ckpt) if ckpt else load_pretrained()
         l2i = {l: i for i, l in self.idx_to_label.items()}
+        if not vocab and ckpt:                       # fine-tuned model: listen for every word it was trained on
+            vocab = checkpoint_labels(ckpt)
         self.vocab = [w for w in (vocab or DEMO_VOCAB) if w in l2i]
+        print("Listening for:", ", ".join(self.vocab))
         self.vocab_ids = np.array([l2i[w] for w in self.vocab])
         self.seg = SignSegmenter(start_frames=3, end_gap=12, min_len=12, max_len=160,
                                 pre_roll=8, post_roll=6)
@@ -68,6 +71,8 @@ class Recognizer:
         return (word, top)
 
     def _decide(self, clip):
+        if len(clip) >= self.seg.max_len:                       # hands never came down: not one sign
+            return None, [("(hands held up too long)", 0.0)], {"why": "too long"}
         hands = clip[:, :126].reshape(len(clip), 2, 21, 3)
         if np.mean(np.any(hands != 0, axis=(1, 2, 3))) < 0.5:   # hands must be there for most of it
             return None, [("(hands not visible)", 0.0)], {"why": "few hands"}
@@ -177,6 +182,12 @@ def run_webcam(args):
     status = ""
     warn = ""
     ui = {"sentence": ""}                       # filled by the speaking thread
+    try:                                        # speech self-test: you should HEAR this now
+        from demo import speak_blocking
+        speak_blocking("Ready")
+        print("Speech test: OK (you should have heard 'Ready')")
+    except Exception as e:
+        print("!!! SPEECH NOT WORKING:", e)
     idle_since = time.time()
 
     def finish():
@@ -239,7 +250,7 @@ if __name__ == "__main__":
     ap.add_argument("--video", nargs="+", help="run on video file(s) instead of the webcam")
     ap.add_argument("--camera", type=int, default=0)
     ap.add_argument("--threshold", type=float, default=0.6)
-    ap.add_argument("--vocab", help="comma-separated words to recognise (default: demo vocabulary)")
+    ap.add_argument("--vocab", help="comma-separated words to recognise (default: all words in --ckpt, else the demo vocabulary)")
     ap.add_argument("--ckpt", help="fine-tuned checkpoint from finetune_webcam.py")
     ap.add_argument("--auto", type=float, default=4.0,
                     help="speak the sentence automatically after this many idle seconds (0 = only on SPACE)")

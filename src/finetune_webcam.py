@@ -113,9 +113,9 @@ def main():
                 msg += f"   val acc {accuracy(model, val, ids):.3f}"
             print(msg)
     os.makedirs(os.path.dirname(args.out), exist_ok=True)
-    torch.save({"model": model.state_dict()}, args.out)
+    torch.save({"model": model.state_dict(), "labels": labels}, args.out)
     print("saved", args.out)
-    print("run:  python src/sign2speech.py --ckpt", args.out, "--vocab", ",".join(labels))
+    print("run:  python src/sign2speech.py --ckpt", args.out, " (listens for all", len(labels), "recorded words)")
 
 
 if __name__ == "__main__":

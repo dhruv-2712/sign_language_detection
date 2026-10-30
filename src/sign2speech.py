@@ -12,6 +12,7 @@ Without GROQ_API_KEY the recognised words are spoken as-is.
 """
 import argparse
 import os
+import threading
 import time
 
 import cv2
@@ -26,6 +27,7 @@ TOPK = 3
 DEMO_VOCAB = ["hello", "howareyou", "thankyou", "goodmorning", "goodafternoon", "goodevening",
               "goodnight", "alright", "pleased", "i", "you", "we", "they", "he", "she", "it",
               "today", "tomorrow", "yesterday"]
+SPEAK_WORDS = True       # speak each recognised word as it is accepted
 MIN_VOCAB_MASS = 0.3     # prob. the full 263-way model puts on the demo words (non-demo signs ~0.03)
 
 
@@ -108,8 +110,9 @@ def draw_skeleton(frame, vec):
             cv2.circle(frame, tuple(pose[i].astype(int)), 5, (0, 200, 255), -1)
 
 
-def speak_sentence(words, alts):
-    from demo import to_sentence, speak
+def speak_sentence(words, alts, wait=True):
+    """LLM sentence from the recognised words, then speak it. wait=False returns once queued."""
+    from demo import to_sentence, speak, wait_speech
     try:
         sentence = to_sentence(words, alts)
     except Exception as e:
@@ -118,6 +121,8 @@ def speak_sentence(words, alts):
         sentence = " ".join(pretty(w) for w in words)
     print("Sentence:", sentence)
     speak(sentence)
+    if wait:
+        wait_speech()
     return sentence
 
 
@@ -143,6 +148,8 @@ def run_videos(paths, args):
             rec.push(np.zeros(225))
     if words:
         speak_sentence(words, alts)
+    from demo import wait_speech
+    wait_speech()
 
 
 def _emit(result, words, alts, rec=None):
@@ -155,6 +162,9 @@ def _emit(result, words, alts, rec=None):
     if word:
         words.append(word)
         alts.append(top)
+        if SPEAK_WORDS:
+            from demo import speak, pretty
+            speak(pretty(word))
 
 
 def run_webcam(args):
@@ -166,6 +176,17 @@ def run_webcam(args):
     cap = open_camera(args.camera)
     status = ""
     warn = ""
+    ui = {"sentence": ""}                       # filled by the speaking thread
+    idle_since = time.time()
+
+    def finish():
+        w, a = list(words), list(alts)
+        words.clear(); alts.clear()
+        ui["sentence"] = "..."
+
+        def work():
+            ui["sentence"] = speak_sentence(w, a, wait=False)
+        threading.Thread(target=work, daemon=True).start()
     while True:
         ok, frame = cap.read()
         if not ok:
@@ -180,7 +201,10 @@ def run_webcam(args):
         body_ok = bool(pts[42 + 11].any() and pts[42 + 12].any())
         warn = "" if body_ok else "STEP BACK: shoulders not visible"
         res = rec.push(vec)
+        if rec.seg.active:
+            idle_since = time.time()
         if res is not None:
+            idle_since = time.time()
             _emit(res, words, alts, rec)
             i = rec.last_info
             status = ("ACCEPTED " if res[0] else "rejected ") + " | ".join(f"{g} {p:.0%}" for g, p in res[1]) + f"  (mass {i.get('mass', 0):.2f}, {i.get('frames', 0)}f)"
@@ -190,15 +214,22 @@ def run_webcam(args):
         if warn:
             cv2.putText(frame, warn, (10, frame.shape[0] - 15), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
         cv2.putText(frame, " ".join(words), (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+        if ui["sentence"]:
+            cv2.putText(frame, ui["sentence"][:60], (10, frame.shape[0] - 45), cv2.FONT_HERSHEY_SIMPLEX,
+                        0.7, (255, 255, 255), 2)
+        cv2.putText(frame, "SPACE speak | C clear | Q quit" + (f" | auto in {max(0, args.auto - (time.time() - idle_since)):.0f}s" if words and args.auto else ""),
+                    (10, frame.shape[0] - 15) if not warn else (10, frame.shape[0] - 75),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
         cv2.imshow("sign2speech", frame)
         key = cv2.waitKey(1) & 0xFF
         if key == ord("q"):
             break
         if key == ord("c"):
-            words.clear(); alts.clear()
-        if key == ord(" ") and words:
-            speak_sentence(list(words), list(alts))
-            words.clear(); alts.clear()
+            words.clear(); alts.clear(); ui["sentence"] = ""
+        if (key == ord(" ") and words) or (words and args.auto and not rec.seg.active
+                                           and time.time() - idle_since > args.auto):
+            finish()
+            idle_since = time.time()
     cap.release()
     cv2.destroyAllWindows()
 
@@ -210,5 +241,9 @@ if __name__ == "__main__":
     ap.add_argument("--threshold", type=float, default=0.6)
     ap.add_argument("--vocab", help="comma-separated words to recognise (default: demo vocabulary)")
     ap.add_argument("--ckpt", help="fine-tuned checkpoint from finetune_webcam.py")
+    ap.add_argument("--auto", type=float, default=4.0,
+                    help="speak the sentence automatically after this many idle seconds (0 = only on SPACE)")
+    ap.add_argument("--no-speak-words", action="store_true", help="don't speak each word as it is recognised")
     a = ap.parse_args()
+    SPEAK_WORDS = not a.no_speak_words
     run_videos(a.video, a) if a.video else run_webcam(a)

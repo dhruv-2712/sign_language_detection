@@ -174,3 +174,13 @@ python src/sign2speech.py --ckpt models/pretrained/finetuned_webcam.pth --vocab 
 
 Not verified on a physical camera in this repo; the record -> fine-tune -> recognise path was
 tested with simulated close-up clips only.
+
+### Live demo behaviour (`sign2speech.py`)
+
+- Each accepted word is **spoken as it is recognised**; after `--auto` idle seconds (default 4,
+  `--auto 0` to disable) or on SPACE, the words go to the Groq LLM and the **sentence is spoken**
+  and shown on screen. Speech runs on a worker thread via Windows' built-in voice, so the video
+  never freezes (`--no-speak-words` to speak only sentences).
+- `GROQ_API_KEY` is also read from the Windows user environment, so a terminal opened before the
+  key was set still works.
+- `python src/preflight.py` checks files, model, Groq, speech, camera, fine-tuned model and backup videos.

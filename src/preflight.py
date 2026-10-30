@@ -33,24 +33,28 @@ def model():
 
 
 def groq():
+    import demo
+    demo._load_key()                       # also finds a key saved in Windows user settings
     if not os.environ.get("GROQ_API_KEY"):
-        raise RuntimeError("GROQ_API_KEY not set in this terminal (open a NEW terminal after setting it)")
+        raise RuntimeError("GROQ_API_KEY is not set (Windows user environment variable)")
     from demo import to_sentence
     return "sentence: " + to_sentence(["hello", "you", "howareyou"])
 
 
 def tts():
-    import pyttsx3
-    e = pyttsx3.init()
-    e.say("Sign language demo is ready")
-    e.runAndWait()
-    return "you should have just heard a voice"
+    from demo import speak_blocking
+    speak_blocking("Sign language demo is ready")
+    return "you should have just heard a voice say 'Sign language demo is ready'"
 
 
 def camera():
     from landmarks import open_camera, extract
-    import numpy as np
+    import time
     cap = open_camera(0)
+    print("   Camera test in 4 seconds: step back so your shoulders show, face the light, stay still...", flush=True)
+    t0 = time.time()
+    while time.time() - t0 < 4:
+        cap.read()
     ok, frame = cap.read()
     h, w = frame.shape[:2]
     shoulders = 0

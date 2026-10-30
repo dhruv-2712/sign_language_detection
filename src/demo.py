@@ -4,7 +4,10 @@ Requires GROQ_API_KEY in the environment for the LLM call (GROQ_MODEL optionally
 pyttsx3 is offline and needs no key.
 """
 import os
-import pyttsx3
+import queue
+import subprocess
+import threading
+
 from groq import Groq
 
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -12,23 +15,88 @@ _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MODEL = os.environ.get("GROQ_MODEL", "openai/gpt-oss-20b")
 
 _client = None
-_engine = None
+
+
+def _load_key():
+    """Make GROQ_API_KEY available even in a terminal opened before it was set (Windows)."""
+    if os.environ.get("GROQ_API_KEY") or os.name != "nt":
+        return
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment") as k:
+            os.environ["GROQ_API_KEY"] = winreg.QueryValueEx(k, "GROQ_API_KEY")[0]
+    except OSError:
+        pass
 
 
 def _get_client():
     global _client
     if _client is None:
+        _load_key()
         _client = Groq()
     return _client
 
 
+# ---- text to speech: a worker thread speaks one utterance at a time, so the video never freezes
+_SAPI = ("Add-Type -AssemblyName System.Speech; "
+         "$s = New-Object System.Speech.Synthesis.SpeechSynthesizer; $s.Speak($env:SIGN_TTS_TEXT)")
+_speech_q = queue.Queue()
+_speech_thread = None
+_speech_errors = []
+_POWERSHELL = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32",
+                           "WindowsPowerShell", "v1.0", "powershell.exe")
+
+
+def _say(text):
+    """Speak with Windows' built-in voice; fall back to pyttsx3 elsewhere / on failure."""
+    if os.name == "nt":
+        try:
+            r = subprocess.run([_POWERSHELL, "-NoProfile", "-Command", _SAPI], capture_output=True,
+                               env={**os.environ, "SIGN_TTS_TEXT": text})
+            if r.returncode == 0:
+                return
+            print("Windows speech failed:", r.stderr.decode(errors="ignore")[:200])
+        except OSError as e:
+            print("Windows speech unavailable:", e)
+    import pyttsx3
+    engine = pyttsx3.init()
+    engine.say(text)
+    engine.runAndWait()
+
+
+def _speech_worker():
+    while True:
+        text = _speech_q.get()
+        try:
+            _say(text)
+        except Exception as e:
+            _speech_errors.append(str(e))
+            print("TTS failed:", e)
+        finally:
+            _speech_q.task_done()
+
+
 def speak(text):
-    """Speak text with offline TTS (engine created lazily)."""
-    global _engine
-    if _engine is None:
-        _engine = pyttsx3.init()
-    _engine.say(text)
-    _engine.runAndWait()
+    """Queue text to be spoken; returns immediately."""
+    global _speech_thread
+    if _speech_thread is None:
+        _speech_thread = threading.Thread(target=_speech_worker, daemon=True)
+        _speech_thread.start()
+    _speech_q.put(text)
+
+
+def wait_speech():
+    """Block until everything queued has been spoken."""
+    _speech_q.join()
+
+
+def speak_blocking(text):
+    """Speak and wait; raises if no speech engine worked."""
+    n = len(_speech_errors)
+    speak(text)
+    wait_speech()
+    if len(_speech_errors) > n:
+        raise RuntimeError("text-to-speech failed: " + _speech_errors[-1])
 
 
 PRETTY = {"howareyou": "how are you", "goodmorning": "good morning",
@@ -77,4 +145,4 @@ if __name__ == "__main__":
     words = ["hello", "name", "help"]
     sentence = to_sentence(words)
     print(sentence)
-    speak(sentence)
+    speak_blocking(sentence)

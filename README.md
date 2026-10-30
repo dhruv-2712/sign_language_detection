@@ -184,3 +184,12 @@ tested with simulated close-up clips only.
 - `GROQ_API_KEY` is also read from the Windows user environment, so a terminal opened before the
   key was set still works.
 - `python src/preflight.py` checks files, model, Groq, speech, camera, fine-tuned model and backup videos.
+
+### Live demo keys and fine-tuning notes
+
+- `sign2speech.py` keys: **R** = play the next word's reference ISL video, **1-9** = reference for a
+  specific word, SPACE = speak sentence now, C = clear, Q = quit. With `--ckpt`, it listens for every
+  word the checkpoint was fine-tuned on (no `--vocab` needed) and says "Ready" at start-up.
+- `finetune_webcam.py` mixes INCLUDE clips of the same words into training (replay). Without it the
+  model over-fitted to our recordings (14/28 on INCLUDE clips); with it: 100% on held-out own clips
+  and 100% on held-out INCLUDE clips (7 words), and 79/81 through the full live decision logic.

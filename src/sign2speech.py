@@ -73,8 +73,12 @@ class Recognizer:
     def _decide(self, clip):
         if len(clip) >= self.seg.max_len:                       # hands never came down: not one sign
             return None, [("(hands held up too long)", 0.0)], {"why": "too long"}
-        hands = clip[:, :126].reshape(len(clip), 2, 21, 3)
-        if np.mean(np.any(hands != 0, axis=(1, 2, 3))) < 0.5:   # hands must be there for most of it
+        # Hands must be visible for most of the sign itself; skip the pre/post-roll context
+        # frames (no hands by design), otherwise short signs like "you" fail this check.
+        core = clip[self.seg.pre_roll: len(clip) - self.seg.post_roll]
+        core = core if len(core) >= 4 else clip
+        hands = core[:, :126].reshape(len(core), 2, 21, 3)
+        if np.mean(np.any(hands != 0, axis=(1, 2, 3))) < 0.5:
             return None, [("(hands not visible)", 0.0)], {"why": "few hands"}
         sh = clip.reshape(len(clip), 75, 3)[:, [42 + 11, 42 + 12]]
         if np.mean(np.all(np.any(sh != 0, axis=2), axis=1)) < 0.7:
@@ -182,6 +186,12 @@ def run_webcam(args):
     status = ""
     warn = ""
     ui = {"sentence": ""}                       # filled by the speaking thread
+    from references import play_reference, reference_videos
+    refs = reference_videos()
+    ref_words = [w for w in rec.vocab if w in refs]
+    ref_i = 0
+    print("Reference videos (R = next, 1-9 = pick):",
+          ", ".join(f"{n + 1} {w}" for n, w in enumerate(ref_words)) or "none - run fetch_include_test.py")
     try:                                        # speech self-test: you should HEAR this now
         from demo import speak_blocking
         speak_blocking("Ready")
@@ -228,7 +238,7 @@ def run_webcam(args):
         if ui["sentence"]:
             cv2.putText(frame, ui["sentence"][:60], (10, frame.shape[0] - 45), cv2.FONT_HERSHEY_SIMPLEX,
                         0.7, (255, 255, 255), 2)
-        cv2.putText(frame, "SPACE speak | C clear | Q quit" + (f" | auto in {max(0, args.auto - (time.time() - idle_since)):.0f}s" if words and args.auto else ""),
+        cv2.putText(frame, "R/1-9 reference | SPACE speak | C clear | Q quit" + (f" | auto in {max(0, args.auto - (time.time() - idle_since)):.0f}s" if words and args.auto else ""),
                     (10, frame.shape[0] - 15) if not warn else (10, frame.shape[0] - 75),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
         cv2.imshow("sign2speech", frame)
@@ -237,6 +247,16 @@ def run_webcam(args):
             break
         if key == ord("c"):
             words.clear(); alts.clear(); ui["sentence"] = ""
+        pick = None
+        if key == ord("r") and ref_words:
+            pick, ref_i = ref_words[ref_i % len(ref_words)], ref_i + 1
+        elif ord("1") <= key <= ord("9") and key - ord("1") < len(ref_words):
+            pick = ref_words[key - ord("1")]
+        if pick:
+            from demo import pretty
+            play_reference(refs[pick], pretty(pick))
+            rec.seg.reset()                     # don't let the pause leak into a sign
+            idle_since = time.time()
         if (key == ord(" ") and words) or (words and args.auto and not rec.seg.active
                                            and time.time() - idle_since > args.auto):
             finish()

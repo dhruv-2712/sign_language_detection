@@ -20,34 +20,10 @@ import numpy as np
 
 from landmarks import extract, open_camera
 from segmenter import SignSegmenter
+from references import play_reference, reference_videos
 from sign2speech import DEMO_VOCAB, draw_skeleton
-from video_to_landmarks import _find_videos
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-REF_WINDOW = "reference (any key = stop)"
-
-
-def reference_videos():
-    """label -> one INCLUDE reference video (from the downloaded test clips)."""
-    refs = {}
-    for v in _find_videos(os.path.join(REPO_ROOT, "data", "include_test"), recursive=True):
-        lab = "".join(c for c in os.path.basename(os.path.dirname(v)) if c.isalpha()).lower()
-        refs.setdefault(lab, v)
-    return refs
-
-
-def play_reference(path):
-    cap = cv2.VideoCapture(path)
-    while True:
-        ok, f = cap.read()
-        if not ok:
-            break
-        f = cv2.resize(f, (640, int(640 * f.shape[0] / f.shape[1])))
-        cv2.imshow(REF_WINDOW, f)
-        if cv2.waitKey(40) != -1:
-            break
-    cap.release()
-    cv2.destroyWindow(REF_WINDOW)
 
 
 def main():
@@ -105,7 +81,7 @@ def main():
         elif k in (ord("n"), ord("p")):
             i, armed = (i + (1 if k == ord("n") else -1)) % len(labels), False
         elif k == ord("r") and label in refs:
-            play_reference(refs[label])
+            play_reference(refs[label], label)
         elif k == ord("u") and count(label):
             os.remove(os.path.join(args.out, label, f"{count(label) - 1}.npz"))
     cap.release()

@@ -31,6 +31,35 @@ def load_clips(root):
     return data
 
 
+def include_clips(labels):
+    """INCLUDE test-split clips of these words -> (replay half, held-out half), as 30 fps features.
+
+    Uses the landmark cache written by eval_include.py; extracts (and caches) any missing clip.
+    """
+    from eval_include import label_of
+    from video_to_landmarks import _find_videos, clip_to_vector_sequence_tracked
+    root = os.path.join(REPO_ROOT, "data", "include_test")
+    cache = os.path.join(REPO_ROOT, "data", "lm_video03")
+    os.makedirs(cache, exist_ok=True)
+    per = {}
+    for v in _find_videos(root, recursive=True):
+        lb = label_of(v)
+        if lb not in labels:
+            continue
+        cpath = os.path.join(cache, os.path.relpath(v, root).replace(os.sep, "_") + ".npy")
+        if os.path.exists(cpath):
+            seq = np.load(cpath)
+        else:
+            seq = clip_to_vector_sequence_tracked(v)
+            np.save(cpath, seq)
+        per.setdefault(lb, []).append((lb, to_include_features(seq)))
+    replay, held = [], []
+    for items in per.values():
+        replay += items[0::2]
+        held += items[1::2]
+    return replay, held
+
+
 def augment(f, rng):
     """Light augmentation in INCLUDE pixel space; never-detected (zero) values stay zero."""
     nz = f != 0
@@ -61,8 +90,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", default=os.path.join(REPO_ROOT, "data", "webcam_clips"))
     ap.add_argument("--out", default=os.path.join(REPO_ROOT, "models", "pretrained", "finetuned_webcam.pth"))
-    ap.add_argument("--epochs", type=int, default=30)
-    ap.add_argument("--lr", type=float, default=3e-5)
+    ap.add_argument("--epochs", type=int, default=20)
+    ap.add_argument("--lr", type=float, default=2e-5)
+    ap.add_argument("--replay_weight", type=int, default=2, help="repeat INCLUDE replay clips this many times")
     ap.add_argument("--val_frac", type=float, default=0.25)
     ap.add_argument("--seed", type=int, default=0)
     args = ap.parse_args()
@@ -88,8 +118,16 @@ def main():
         val += items[:k]
         train += items[k:]
     print(f"{len(clips)} clips, {len(labels)} signs: {labels}  (train {len(train)}, val {len(val)})")
+
+    # Replay: mix in INCLUDE clips of the same words so the model learns YOUR signing without
+    # forgetting the real signs (without this it collapsed towards one word). Half are trained
+    # on, the other half are kept aside to check the model still recognises other signers.
+    replay, inc_val = include_clips(labels)
+    train += replay * args.replay_weight
+    print(f"INCLUDE replay: {len(replay)} clips trained on (x{args.replay_weight}), {len(inc_val)} held out")
     if val:
-        print(f"val accuracy BEFORE fine-tune (among your signs): {accuracy(model, val, ids):.3f}")
+        print(f"BEFORE: your held-out clips {accuracy(model, val, ids):.3f}"
+              + (f" | INCLUDE held-out {accuracy(model, inc_val, ids):.3f}" if inc_val else ""))
 
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-2)
     crit = nn.CrossEntropyLoss(label_smoothing=0.1)
@@ -110,7 +148,9 @@ def main():
         if ep % 5 == 0 or ep == args.epochs:
             msg = f"epoch {ep:3d}  loss {total / len(train):.3f}"
             if val:
-                msg += f"   val acc {accuracy(model, val, ids):.3f}"
+                msg += f"   your held-out {accuracy(model, val, ids):.3f}"
+            if inc_val:
+                msg += f"   INCLUDE held-out {accuracy(model, inc_val, ids):.3f}"
             print(msg)
     os.makedirs(os.path.dirname(args.out), exist_ok=True)
     torch.save({"model": model.state_dict(), "labels": labels}, args.out)
